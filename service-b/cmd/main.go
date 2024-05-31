@@ -12,6 +12,7 @@ import (
 	"github.com/phelipperibeiro/lab-02-temperatureSystemByCEP/service-b/internal"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/zipkin"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
@@ -52,6 +53,8 @@ func main() {
 	}()
 
 	otel.SetTracerProvider(tracerProvider)
+
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	//////////////////////////////////////
 	/// Initialização do servidor HTTP ///

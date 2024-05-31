@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type Weather struct {
@@ -19,7 +20,7 @@ type Weather struct {
 func handleCep(responseWriter http.ResponseWriter, request *http.Request) {
 
 	tracer := otel.Tracer("servico-a")
-	ctx := request.Context()
+	ctx := request.Context()                    // white context
 	ctx, span := tracer.Start(ctx, "handleCep") // Iniciando o span
 	defer span.End()
 
@@ -86,14 +87,16 @@ func sendRequestToServiceB(ctx context.Context, cep string) (string, *Weather, e
 		return "", nil, fmt.Errorf("failed to marshal request payload: %v", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
+	nextRequest, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create request: %v", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	nextRequest.Header.Set("Content-Type", "application/json")
+
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(nextRequest.Header))
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := client.Do(nextRequest)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to send request to service B: %v", err)
 	}

@@ -20,10 +20,11 @@ type Weather struct {
 
 func handleCep(responseWriter http.ResponseWriter, request *http.Request) {
 	trace := otel.Tracer("service-b")
-	ctx := request.Context()
 
 	// Extrair o contexto do span da requisição HTTP
-	ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(request.Header))
+	carrier := propagation.HeaderCarrier(request.Header)
+	ctx := request.Context()                                // white context
+	ctx = otel.GetTextMapPropagator().Extract(ctx, carrier) // Get Header data from request and inject in context
 
 	// Iniciar um novo span com o span do serviço A como parent
 	ctx, span := trace.Start(ctx, "handleCep") // Iniciar um novo span
