@@ -2,9 +2,12 @@ package internal
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"go.opentelemetry.io/otel"
 )
 
 type Weather struct {
@@ -14,6 +17,12 @@ type Weather struct {
 }
 
 func handleCep(responseWriter http.ResponseWriter, request *http.Request) {
+
+	tracer := otel.Tracer("servico-a")
+	ctx := request.Context()
+	ctx, span := tracer.Start(ctx, "handleCep") // Iniciando o span
+	defer span.End()
+
 	var data struct {
 		CEP string `json:"cep"`
 	}
@@ -30,7 +39,7 @@ func handleCep(responseWriter http.ResponseWriter, request *http.Request) {
 
 	fmt.Printf("Requisitando serviço B %s\n", data.CEP)
 
-	location, weather, err := sendRequestToServiceB(data.CEP)
+	location, weather, err := sendRequestToServiceB(ctx, data.CEP)
 	if err != nil {
 		http.Error(responseWriter, err.Error(), http.StatusInternalServerError)
 		return
@@ -61,11 +70,13 @@ func handleCep(responseWriter http.ResponseWriter, request *http.Request) {
 	json.NewEncoder(responseWriter).Encode(response)
 }
 
-func sendRequestToServiceB(cep string) (string, *Weather, error) {
+func sendRequestToServiceB(ctx context.Context, cep string) (string, *Weather, error) {
 
-	// url := "http://localhost:8181/cep"
+	tracer := otel.Tracer("servico-a")
+	ctx, span := tracer.Start(ctx, "sendRequestToServiceB") // Iniciando o span
+	defer span.End()
+
 	url := "http://service-b:8181/cep"
-
 	payload := struct {
 		CEP string `json:"cep"`
 	}{CEP: cep}
@@ -75,7 +86,7 @@ func sendRequestToServiceB(cep string) (string, *Weather, error) {
 		return "", nil, fmt.Errorf("failed to marshal request payload: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create request: %v", err)
 	}
@@ -98,9 +109,12 @@ func sendRequestToServiceB(cep string) (string, *Weather, error) {
 		TempF float64 `json:"temp_F"`
 		TempK float64 `json:"temp_K"`
 	}
+
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return "", nil, fmt.Errorf("failed to decode response from service B: %v", err)
 	}
 
-	return response.City, &Weather{TempC: response.TempC, TempF: response.TempF, TempK: response.TempK}, nil
+	weather := &Weather{TempC: response.TempC, TempF: response.TempF, TempK: response.TempK}
+
+	return response.City, weather, nil
 }

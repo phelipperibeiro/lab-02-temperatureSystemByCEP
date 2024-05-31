@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  service-a:
+    container_name: service-a
+    build:
+      context: ./service-a
+      dockerfile: Dockerfile    
+    ports:
+      - "8080:8080"
+    depends_on:
+      - service-b
+    networks:
+      - lab2_network
+
+  service-b:
+    container_name: service-b
+    build:
+      context: ./service-b
+      dockerfile: Dockerfile    
+    ports:
+      - "8181:8181"
+    networks:
+      - lab2_network
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - lab2_network
+
+networks:
+  lab2_network:
+    external: true

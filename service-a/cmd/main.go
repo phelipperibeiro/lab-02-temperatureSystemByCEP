@@ -10,20 +10,60 @@ import (
 	"time"
 
 	"github.com/phelipperibeiro/lab-02-temperatureSystemByCEP/service-a/internal"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/zipkin"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 func main() {
 
-	// Configurando o roteador usando gorilla/mux
+	/////////////////////////////////////////
+	/// Configurando o exportador Zipkin  ///
+	/////////////////////////////////////////
+
+	// Criando um exportador Zipkin
+	exporter, err := zipkin.New(
+		"http://zipkin:9411/api/v2/spans",
+		zipkin.WithLogger(log.Default()),
+	)
+
+	if err != nil {
+		log.Fatalf("Falha ao criar o exportador Zipkin: %v", err)
+	}
+
+	// Configurando o provedor
+	resource := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceNameKey.String("service-a"),
+	)
+
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithResource(resource),
+	)
+
+	defer func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			log.Fatalf("Falha ao desligar o provedor de traçado: %v", err)
+		}
+	}()
+
+	otel.SetTracerProvider(tracerProvider)
+
+	//////////////////////////////////////
+	/// Initialização do servidor HTTP ///
+	//////////////////////////////////////
+
+	// Configurando o roteador
 	router := internal.SetupRouter()
 
 	// Configurando o servidor HTTP
 	server := &http.Server{
-		Addr:         ":8080", // Servidor escutando na porta 8080
-		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:    ":8080", // Servidor escutando na porta 8080
+		Handler: router,
 	}
 
 	// Iniciando o servidor em uma goroutine

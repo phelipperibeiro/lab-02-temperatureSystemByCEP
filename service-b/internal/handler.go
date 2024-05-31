@@ -1,11 +1,15 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type Weather struct {
@@ -14,39 +18,46 @@ type Weather struct {
 	TempK float64 `json:"temp_k"`
 }
 
-func dd(data interface{}) {
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		fmt.Println("Erro ao serializar dados:", err)
-		//os.Exit(1)
-	}
-	fmt.Println(string(jsonData))
-}
+func handleCep(responseWriter http.ResponseWriter, request *http.Request) {
+	trace := otel.Tracer("service-b")
+	ctx := request.Context()
 
-func handleCep(w http.ResponseWriter, r *http.Request) {
-	var request struct {
+	// Extrair o contexto do span da requisição HTTP
+	ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(request.Header))
+
+	// Iniciar um novo span com o span do serviço A como parent
+	ctx, span := trace.Start(ctx, "handleCep") // Iniciar um novo span
+	defer span.End()
+
+	var data struct {
 		CEP string `json:"cep"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "invalid zipcode", http.StatusUnprocessableEntity)
+	if err := json.NewDecoder(request.Body).Decode(&data); err != nil {
+		http.Error(responseWriter, "invalid zipcode", http.StatusUnprocessableEntity)
 		return
 	}
 
-	fmt.Printf("consultando API de CEP para %s\n", request.CEP)
+	if len(data.CEP) != 8 {
+		http.Error(responseWriter, "invalid zipcode", http.StatusUnprocessableEntity)
+		return
+	}
 
-	location, err := getLocation(request.CEP)
+	fmt.Printf("consultando API de CEP para %s\n", data.CEP)
+
+	// Consultar API de CEP
+	location, err := getLocation(ctx, data.CEP)
 	if err != nil {
-		http.Error(w, "can not find zipcode", http.StatusNotFound)
+		http.Error(responseWriter, "can not find zipcode", http.StatusNotFound)
 		return
 	}
 
 	fmt.Printf("consultando API de clima para %s\n", location)
 
 	// Consultar API de Clima
-	weather, err := getWeather(location)
+	weather, err := getWeather(ctx, location)
 	if err != nil {
-		http.Error(w, "error fetching weather", http.StatusInternalServerError)
+		http.Error(responseWriter, "error fetching weather", http.StatusInternalServerError)
 		return
 	}
 
@@ -62,30 +73,8 @@ func handleCep(w http.ResponseWriter, r *http.Request) {
 		TempK: weather.TempK,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func getLocation(cep string) (string, error) {
-	resp, err := http.Get(fmt.Sprintf("http://viacep.com.br/ws/%s/json/", cep))
-
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get location for %s", cep)
-	}
-
-	var data struct {
-		Localidade string `json:"localidade"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", err
-	}
-
-	return data.Localidade, nil
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(response)
 }
 
 func buildQuery(params map[string]string) string {
@@ -96,42 +85,83 @@ func buildQuery(params map[string]string) string {
 	return strings.Join(parts, "&")
 }
 
-func getWeather(city string) (*Weather, error) {
+func getLocation(ctx context.Context, cep string) (string, error) {
+
+	tr := otel.Tracer("service-b")
+	ctx, span := tr.Start(ctx, "getLocation")
+	defer span.End()
+
+	url := fmt.Sprintf("http://viacep.com.br/ws/%s/json/", cep)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
+	}
+
+	var response struct {
+		Localidade string `json:"localidade"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return "", fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	return response.Localidade, nil
+}
+
+func getWeather(ctx context.Context, city string) (*Weather, error) {
+
+	tr := otel.Tracer("service-b")
+	ctx, span := tr.Start(ctx, "getWeather")
+	defer span.End()
 
 	apiKey := "776617dd5d694eaa94d33907242605" // token de acesso da API WeatherAPI
-
 	params := map[string]string{
 		"q":    city,
 		"lang": "en",
 		"key":  apiKey,
 	}
 
-	resp, err := http.Get(fmt.Sprintf("%s?%s", "http://api.weatherapi.com/v1/current.json", buildQuery(params)))
-
+	url := fmt.Sprintf("%s?%s", "http://api.weatherapi.com/v1/current.json", buildQuery(params))
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get weather for %s", city)
+		return nil, fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
 	}
 
-	var data struct {
+	var response struct {
 		Current struct {
 			TempC float64 `json:"temp_c"`
-			TempF float64 `json:"temp_f"`
-			TempK float64 `json:"temp_k"`
 		} `json:"current"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
 	}
 
 	weather := &Weather{
-		TempC: data.Current.TempC,
-		TempF: data.Current.TempF,
-		TempK: data.Current.TempK,
+		TempC: response.Current.TempC,
+		TempF: response.Current.TempC*1.8 + 32,
+		TempK: response.Current.TempC + 273.15,
 	}
 
 	return weather, nil
