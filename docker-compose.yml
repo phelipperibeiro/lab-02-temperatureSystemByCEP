@@ -31,6 +31,17 @@ services:
     networks:
       - lab2_network
 
+  otel_collector:
+    image: otel/opentelemetry-collector:latest
+    restart: always
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./.docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"
+    networks:
+      - lab2_network  
+
 networks:
   lab2_network:
     external: true

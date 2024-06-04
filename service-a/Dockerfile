@@ -29,4 +29,3 @@ ENTRYPOINT ["/app/main"]
 # docker network create lab2_network
 # docker build -f Dockerfile -t service-a . 
 # docker run -d -p 8080:8080 --name service-a --network lab2_network service-a
-
