@@ -4,11 +4,14 @@ FROM golang:1.22 as builder
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy the source code into the container
-COPY . .
+# Copy go.mod and go.sum files first to cache the dependencies
+COPY go.mod go.sum ./
 
 # Download dependencies
 RUN go mod download
+
+# Copy the source code into the container
+COPY . .
 
 # Build the Go app
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o main cmd/main.go
