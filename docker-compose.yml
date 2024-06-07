@@ -33,6 +33,7 @@ services:
 
   otel_collector:
     image: otel/opentelemetry-collector:latest
+    container_name: otel_collector
     restart: always
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
