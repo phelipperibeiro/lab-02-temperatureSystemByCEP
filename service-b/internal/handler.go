@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"go.opentelemetry.io/otel"
@@ -16,6 +17,15 @@ type Weather struct {
 	TempC float64 `json:"temp_c"`
 	TempF float64 `json:"temp_f"`
 	TempK float64 `json:"temp_k"`
+}
+
+func dd(data interface{}) {
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		fmt.Println("Erro ao serializar dados:", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(jsonData))
 }
 
 func handleCep(responseWriter http.ResponseWriter, request *http.Request) {
@@ -107,14 +117,17 @@ func getLocation(ctx context.Context, cep string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
+		// return "", fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
+		return "", fmt.Errorf("can not find zipcode %s", cep)
 	}
 
 	var response struct {
 		Localidade string `json:"localidade"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("failed to decode response: %v", err)
+
+	if response.Localidade == "" {
+		fmt.Printf("cep não encontrado %s\n", cep)
+		return "", fmt.Errorf("can not find zipcode %s", cep)
 	}
 
 	return response.Localidade, nil
