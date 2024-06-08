@@ -102,7 +102,12 @@ func sendRequestToServiceB(ctx context.Context, cep string) (string, *Weather, e
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return "", nil, fmt.Errorf("can not find zipcode: %s", cep)
+	case http.StatusOK:
+		// Process the response here
+	default:
 		return "", nil, fmt.Errorf("service B returned non-200 status code: %d", resp.StatusCode)
 	}
 
